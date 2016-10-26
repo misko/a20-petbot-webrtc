@@ -17,6 +17,7 @@
 #include <gst/gst.h>
 #include <libsoup/soup.h>
 #include <nice/nice.h>
+#include <nice/agent.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -252,6 +253,8 @@ static void gathering_done (NiceAgent *agent, guint stream_id, MesiaSession *med
   candidates = g_slist_concat (candidates,
                                nice_agent_get_local_candidates (mediaSession->agent, mediaSession->stream_id, 2));
 
+  //gchar * sdp = nice_agent_generate_local_sdp (agent);
+
   nice_address_to_string (&lowest_prio_cand->addr, addr);
   fingerprint = generate_fingerprint (CERT_KEY_PEM_FILE);
 
@@ -261,18 +264,37 @@ static void gathering_done (NiceAgent *agent, guint stream_id, MesiaSession *med
       "\"o=- 2750483185 0 IN IP4 %s\\r\\n\" +\n"
       "\"s=Streaming test\\r\\n\" +\n"
       "\"t=0 0\\r\\n\" +\n"
-      "\"a=ice-ufrag:%s\\r\\n\" +\n"
-      "\"a=ice-pwd:%s\\r\\n\" +\n"
+      //"\"a=ice-ufrag:%s\\r\\n\" +\n"
+      //"\"a=ice-pwd:%s\\r\\n\" +\n"
       "\"a=fingerprint:sha-256 %s\\r\\n\" +\n"
       "\"a=group:BUNDLE video\\r\\n\" +\n"
       "\"m=video %d RTP/SAVPF 96\\r\\n\" +\n"
-      "\"c=IN IP4 %s\\r\\n\" +\n"
+      //"\"c=IN IP4 %s\\r\\n\" +\n"
       "\"a=rtpmap:96 H264/90000\\r\\n\" +\n"
       "\"a=fmtp:96 profile-level-id=42e01f\\r\\n\" +\n"
       "\"a=send\\r\\n\" +\n"
       "\"a=mid:video\\r\\n\" +\n"
       "\"a=rtcp-mux\\r\\n\"",
-      addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);
+      //addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);
+      addr, fingerprint, nice_address_get_port (&lowest_prio_cand->addr));
+
+
+  char buffer[4096];
+  gchar * sdp = nice_agent_generate_local_stream_sdp(agent,1,TRUE);
+  size_t sdp_offset = 0;
+  size_t buffer_offset = 0;
+  for (sdp_offset=0; sdp[sdp_offset]!='\0'; sdp_offset++) {
+	if (sdp[sdp_offset]=='\n') {
+		buffer[buffer_offset]='\0';
+		if (buffer[0]!='m') {
+			g_string_append_printf(sdpStr,"+\n\"%s\\r\\n\"",buffer);
+		}
+		fprintf(stderr,"FOUND!|%s|\n",buffer);
+		buffer_offset=0;
+	} else {
+		buffer[buffer_offset++]=sdp[sdp_offset];
+	}
+  }
 
   g_free (ufrag);
   g_free (pwd);
@@ -281,12 +303,17 @@ static void gathering_done (NiceAgent *agent, guint stream_id, MesiaSession *med
   int i=0; 
   for (walk = candidates; walk; walk = walk->next) {
     NiceCandidate *cand = walk->data;
-  
-    nice_address_to_string (&cand->addr, addr);
+
+    //new way 
+    //gchar * cand_str = nice_agent_generate_local_candidate_sdp(agent,cand);
+    //g_string_append_printf (sdpStr,"+\n\"%s\\r\\n\"",cand_str);
+ 
+    //old way
+    /*nice_address_to_string (&cand->addr, addr);
     g_string_append_printf (sdpStr,
         "+\n\"a=candidate:%s %d UDP %d %s %d typ %s\\r\\n\"",
         cand->foundation, cand->component_id, cand->priority, addr,
-        nice_address_get_port (&cand->addr),candidate_type_name[cand->type]);
+        nice_address_get_port (&cand->addr),candidate_type_name[cand->type]);*/
   }
   g_slist_free_full (candidates, (GDestroyNotify) nice_candidate_free);
 
@@ -336,6 +363,7 @@ static gchar * get_substring (const gchar *regex, const gchar *string) {
   return ret;
 }
 
+
 static gboolean configure_media_session (MesiaSession *mediaSession, const gchar *sdp) {
   fprintf(stderr,"IN CONFIG MEDIA\n");
   gboolean ret;
@@ -343,19 +371,45 @@ static gboolean configure_media_session (MesiaSession *mediaSession, const gchar
   gchar *pwd;
   GRegex *regex;
   GMatchInfo *match_info = NULL;
-
+  //fprintf(stderr,"PARSE SDP|%s|\n",sdp);
   GST_DEBUG ("Process SDP:\n%s", sdp);
 
+  /*nice_agent_set_stream_name(mediaSession->agent, mediaSession->stream_id, "video");
+  int retd = nice_agent_parse_remote_sdp(mediaSession->agent,sdp);
+  fprintf(stderr,"REMOTE CANDDIATE PARSING? %d\n",retd);*/
+
+  
   ufrag = get_substring ("^a=ice-ufrag:([A-Za-z0-9\\+\\/]+)$", sdp);
   pwd = get_substring ("^a=ice-pwd:([A-Za-z0-9\\+\\/]+)$", sdp);
-  /* TODO: get remote fingerprint and pt*/
 
   nice_agent_set_remote_credentials (mediaSession->agent, mediaSession->stream_id, ufrag, pwd);
   g_free (ufrag);
   g_free (pwd);
 
-  //regex = g_regex_new ("^a=candidate:(?<foundation>[0-9]+) (?<cid>[0-9]+)"
-  ///   " (udp|UDP) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+) (?<port>[0-9]+) typ host( generation [0-9]+)?$",
+  regex = g_regex_new ("^(?<cand>a=candidate:.*$)"
+      ,G_REGEX_MULTILINE | G_REGEX_NEWLINE_CRLF, 0, NULL);
+  g_assert (regex);
+  g_regex_match (regex, sdp, 0, &match_info);
+
+  while (g_match_info_matches (match_info)) {
+    gchar *cand_str = g_match_info_fetch_named (match_info, "cand");
+    NiceCandidate * cand = nice_agent_parse_remote_candidate_sdp(mediaSession->agent,mediaSession->stream_id,cand_str);
+    fprintf(stderr,"CAND IS %p %s\n",cand,cand_str);
+    if (g_str_has_prefix(cand_str, "a=candidate:")) {
+       fprintf(stderr,"CAND HAS RIGHT PREFIX\n");
+    }
+
+
+    GSList *candidates;
+    candidates = g_slist_append (NULL, cand);
+    ret = nice_agent_set_remote_candidates (mediaSession->agent, mediaSession->stream_id,
+        cand->component_id, candidates);
+    //pb_nice_agent_parse_remote_candidate_sdp(mediaSession->agent,mediaSession->stream_id,cand_str);
+
+    g_match_info_next (match_info, NULL);
+  }
+  /*
+  //the other regex
   regex = g_regex_new ("^a=candidate:(?<foundation>[0-9]+) (?<cid>[0-9]+)"
       " (udp|UDP) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+) (?<port>[0-9]+) typ host( generation [0-9]+)? ",
       G_REGEX_MULTILINE | G_REGEX_NEWLINE_CRLF, 0, NULL);
@@ -399,7 +453,7 @@ static gboolean configure_media_session (MesiaSession *mediaSession, const gchar
 
   g_match_info_free (match_info);
   g_regex_unref (regex);
-
+ */ 
    fprintf(stderr,"DONE CONFIG MEDIA\n");
   return TRUE;
 }
@@ -427,6 +481,7 @@ static MesiaSession* init_media_session (SoupServer *server, SoupMessage *msg, g
                NULL);
 
   mediaSession->stream_id = nice_agent_add_stream (mediaSession->agent, 2);
+  nice_agent_set_stream_name(mediaSession->agent, mediaSession->stream_id, "video");
   nice_agent_attach_recv (mediaSession->agent, mediaSession->stream_id, 1, mediaSession->context,
                          kms_nice_agent_recv, NULL);
   nice_agent_attach_recv (mediaSession->agent, mediaSession->stream_id, 2, mediaSession->context,
@@ -582,6 +637,7 @@ static void destroy_media_session (gpointer data) {
 }
 
 int main (int argc, char ** argv) {
+  nice_debug_enable(TRUE);
   SoupServer *server;
 
   gst_init (&argc, &argv);
