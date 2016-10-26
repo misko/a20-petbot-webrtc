@@ -216,6 +216,11 @@ CPzkAbX0TE7iHSDulU69cZYu/dV4HHp7Zqzz/rKxDv2uPqtSYoThCw==\
 static GRand *_rand;
 static GHashTable *cookies;
 
+
+static void cb_component_state_changed(NiceAgent *agent, guint stream_id,
+    guint component_id, guint state,
+    gpointer data);
+
 typedef struct _MesiaSession {
   gint64 id;
 
@@ -266,18 +271,22 @@ create_pipeline (MesiaSession *mediaSession)
 {
   GstElement *pipeline = gst_pipeline_new (NULL);
   GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
-  //GstElement *rtpvp8pay = gst_element_factory_make ("rtpvp8pay", NULL);
-  //GstElement *rtpvp8depay = gst_element_factory_make ("rtpvp8depay", NULL);
-  //GstElement *vp8dec = gst_element_factory_make ("vp8dec", NULL);
-  //GstElement *vp8enc = gst_element_factory_make ("vp8enc", NULL);
-  GstElement *rtpvp8pay = gst_element_factory_make ("rtph264pay", NULL);
-  printf("pay %p\n",rtpvp8pay);
-  GstElement *rtpvp8depay = gst_element_factory_make ("rtph264depay", NULL);
-  printf("pay %p\n",rtpvp8depay);
-  GstElement *vp8dec = gst_element_factory_make ("avdec_h264", NULL);
-  printf("pay %p\n",vp8dec);
-  GstElement *vp8enc = gst_element_factory_make ("x264enc", NULL);
-  printf("pay %p\n",vp8enc);
+  //GstElement *rtph264pay = gst_element_factory_make ("rtph264pay", NULL);
+  //GstElement *rtph264depay = gst_element_factory_make ("rtph264depay", NULL);
+  //GstElement *avdec_h264 = gst_element_factory_make ("avdec_h264", NULL);
+  //GstElement *x264enc = gst_element_factory_make ("x264enc", NULL);
+  GstElement *vsink = gst_element_factory_make ("osxvideosink", NULL);
+  GstElement *fakesink = gst_element_factory_make ("fakesink", NULL);
+  GstElement *testsrc = gst_element_factory_make ("videotestsrc", NULL);
+  printf("testsrc %p\n",testsrc);
+  GstElement *rtph264pay = gst_element_factory_make ("rtph264pay", NULL);
+  printf("pay %p\n",rtph264pay);
+  GstElement *rtph264depay = gst_element_factory_make ("rtph264depay", NULL);
+  printf("pay %p\n",rtph264depay);
+  GstElement *avdec_h264 = gst_element_factory_make ("avdec_h264", NULL);
+  printf("pay %p\n",avdec_h264);
+  GstElement *x264enc = gst_element_factory_make ("x264enc", NULL);
+  printf("pay %p\n",x264enc);
   GstElement *dtlssrtpenc = gst_element_factory_make ("dtlssrtpenc", NULL);
   printf("pay %p\n",dtlssrtpenc);
   GstElement *dtlssrtpdec = gst_element_factory_make ("dtlssrtpdec", NULL);
@@ -288,11 +297,14 @@ create_pipeline (MesiaSession *mediaSession)
   printf("pay %p\n",nicesrc);
   GstElement *capsfilter = gst_element_factory_make ("capsfilter", NULL);
   printf("pay %p\n",capsfilter);
+  GstElement *capsfilter2 = gst_element_factory_make ("capsfilter", NULL);
   //GstElement *clockoverlay = gst_element_factory_make ("clockoverlay", NULL);
   GstElement *clockoverlay = gst_element_factory_make ("identity", NULL);
   printf("pay %p\n",clockoverlay);
+  GstElement *vc = gst_element_factory_make ("videoconvert", NULL);
+  printf("vc %p\n",vc);
 
-  GstCaps *caps;
+  GstCaps *caps,*caps2;
 
   g_object_set (G_OBJECT (pipeline), "async-handling", TRUE, NULL);
   gst_bus_add_signal_watch (bus);
@@ -300,20 +312,28 @@ create_pipeline (MesiaSession *mediaSession)
   g_object_unref(bus);
 
   caps = gst_caps_new_simple("application/x-rtp",
-                              "payload", G_TYPE_INT, 126,
+                              "payload", G_TYPE_INT, 96,
                               NULL);
-  g_object_set (capsfilter, "caps", caps, NULL);
+  /*caps2 = gst_caps_new_simple("video/x-h264",
+				"profile","baseline",NULL);*/
+        caps2 = gst_caps_new_simple("video/x-h264",
+            "profile", G_TYPE_STRING, "baseline",
+            NULL);
+  g_object_set (capsfilter2, "caps", caps2, NULL);
   gst_caps_unref (caps);
 
-  g_object_set (clockoverlay, "font-desc", "Sans 28", NULL);
-  g_object_set(vp8enc, "deadline", GST_SECOND / 30, "target-bitrate", 256000,
-                "keyframe-mode", 0, "end-usage", 2, NULL);
+  g_object_set (rtph264pay, "pt", 96, NULL);
+  //g_object_set (clockoverlay, "font-desc", "Sans 28", NULL);
+  //g_object_set(x264enc, "deadline", GST_SECOND / 30, "target-bitrate", 256000,
+  //              "keyframe-mode", 0, "end-usage", 2, NULL);
 
-  //g_object_set (G_OBJECT (dtlssrtpenc), "channel-id", GST_OBJECT_NAME (pipeline), NULL);
-  g_object_set (G_OBJECT (dtlssrtpenc), "connection-id", GST_OBJECT_NAME (pipeline), NULL);
+  g_object_set (G_OBJECT (vsink), "sync", FALSE, NULL);
+  g_object_set (G_OBJECT (x264enc), "tune", 4, NULL);
+  g_object_set (G_OBJECT (dtlssrtpenc), "channel-id", GST_OBJECT_NAME (pipeline), NULL);
+  //g_object_set (G_OBJECT (dtlssrtpenc), "connection-id", GST_OBJECT_NAME (pipeline), NULL);
   g_object_set (G_OBJECT (dtlssrtpenc), "is-client", FALSE, NULL);
-  //g_object_set (G_OBJECT (dtlssrtpdec), "channel-id", GST_OBJECT_NAME (pipeline), NULL);
-  g_object_set (G_OBJECT (dtlssrtpdec), "connection-id", GST_OBJECT_NAME (pipeline), NULL);
+  g_object_set (G_OBJECT (dtlssrtpdec), "channel-id", GST_OBJECT_NAME (pipeline), NULL);
+  //g_object_set (G_OBJECT (dtlssrtpdec), "connection-id", GST_OBJECT_NAME (pipeline), NULL);
   g_object_set (G_OBJECT (dtlssrtpdec), "is-client", FALSE, NULL);
   char * buffer = (char*)malloc(sizeof(char)*4096*16);
   if (buffer==NULL) {
@@ -325,17 +345,38 @@ create_pipeline (MesiaSession *mediaSession)
   while(fgets(buffer+off, 4096, fptr)) {
 	off=strlen(buffer);
   }
-  //g_object_set (G_OBJECT (dtlssrtpdec), "certificate-pem-file", CERT_KEY_PEM_FILE, NULL);
+
+  GstCaps *nicesrc_caps = gst_caps_from_string("application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=96");
+  g_object_set (capsfilter, "caps", nicesrc_caps, NULL);
+  g_object_set (G_OBJECT (dtlssrtpdec), "certificate-pem-file", CERT_KEY_PEM_FILE, NULL);
   //g_object_set (G_OBJECT (dtlssrtpdec), "pem", CERT_KEY_PEM_FILE, NULL); //TODO THIS SHOULD BE THE FILE CONENTS?
-  g_object_set (G_OBJECT (dtlssrtpdec), "pem", buffer, NULL); //TODO THIS SHOULD BE THE FILE CONENTS?
+  //g_object_set (G_OBJECT (dtlssrtpdec), "pem", buffer, NULL); //TODO THIS SHOULD BE THE FILE CONENTS?
 
   g_object_set (G_OBJECT (nicesink), "agent", mediaSession->agent, "stream", mediaSession->stream_id, "component", 1, NULL);
   g_object_set (G_OBJECT (nicesrc), "agent", mediaSession->agent, "stream", mediaSession->stream_id, "component", 1, NULL);
 
-  gst_bin_add_many (GST_BIN (pipeline), nicesrc, dtlssrtpdec, rtpvp8depay, rtpvp8pay, dtlssrtpenc, nicesink,
-                    capsfilter, vp8dec, vp8enc, clockoverlay, NULL);
-  gst_element_link_many (nicesrc, dtlssrtpdec, capsfilter, rtpvp8depay, vp8dec, clockoverlay,
-                         vp8enc, rtpvp8pay, dtlssrtpenc, nicesink, NULL);
+  gst_bin_add_many (GST_BIN (pipeline), nicesrc,  dtlssrtpdec, rtph264depay, vc, rtph264pay, dtlssrtpenc, nicesink,
+                     avdec_h264, x264enc, capsfilter2, capsfilter,NULL);
+  //gst_element_link_many (dtlssrtpdec, rtph264depay, avdec_h264, clockoverlay,
+  //                       x264enc, capsfilter2, rtph264pay, dtlssrtpenc,NULL);
+  //gst_bin_add_many (GST_BIN (pipeline), testsrc, vc, dtlssrtpenc, nicesink,
+  //                   x264enc, rtph264pay, capsfilter2,NULL);
+  //gst_element_link_many (testsrc,vc,x264enc, capsfilter2, rtph264pay, dtlssrtpenc,NULL);
+  /*if (!gst_element_link_pads(nicesrc, NULL,  dtlssrtpdec, "sink")) {
+	fprintf(stderr,"FAILE TO LINK NICESRC!\n");
+	exit(1);
+  }
+  if (!gst_element_link_pads (dtlssrtpdec, "rtp_src", capsfilter,NULL)) {
+	fprintf(stderr,"FAILED TO LINK CAPS FILTER\n");
+        exit(1);
+  }*/
+  gst_element_link_many ( nicesrc, dtlssrtpdec, capsfilter, rtph264depay, avdec_h264,vc, x264enc, capsfilter2,rtph264pay, dtlssrtpenc, nicesink, NULL) ; 
+
+  //gst_element_link_pads(rtph264pay, NULL, dtlssrtpenc, "rtp_sink_0");
+  //gst_element_link_pads(dtlssrtpenc, "src", nicesink, NULL);
+  //gst_element_link(nicesrc,dtlssrtpdec);
+  //gst_element_link(dtlssrtpenc,nicesink);
+ //  gst_element_sync_state_with_parent(dtlssrtpdec);
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
   //GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL,
@@ -445,7 +486,7 @@ s=Streaming Test
 t=0 0
 a=group:BUNDLE video
 a=msid-semantic: WMS janus
-m=video 9 RTP/SAVPF 126
+m=video 9 RTP/SAVPF 96
 c=IN IP4 192.168.2.147
 a=sendonly
 a=mid:video
@@ -455,10 +496,10 @@ a=ice-pwd:EpDfWcTB5AQuY6/iXVSHIU
 a=ice-options:trickle
 a=fingerprint:sha-256 D2:B9:31:8F:DF:24:D8:0E:ED:D2:EF:25:9E:AF:6F:B8:34:AE:53:9C:E6:F3:8F:F2:64:15:FA:E8:7F:53:2D:38
 a=setup:actpass
-a=rtpmap:126 H264/90000
-a=fmtp:126 profile-level-id=42e01f;packetization-mode=1
-a=rtcp-fb:126 nack
-a=rtcp-fb:126 goog-remb
+a=rtpmap:96 H264/90000
+a=fmtp:96 profile-level-id=42e01f;packetization-mode=1
+a=rtcp-fb:96 nack
+a=rtcp-fb:96 goog-remb
 a=ssrc:3547346012 cname:janusvideo
 a=ssrc:3547346012 msid:janus janusv0
 a=ssrc:3547346012 mslabel:janus
@@ -470,29 +511,31 @@ a=candidate:2 2 udp 2013266430 192.168.2.147 57371 typ host
 "*/
 
   sdpStr = g_string_new ("");
-  g_string_append_printf (sdpStr,
+  /*g_string_append_printf (sdpStr,
       "\"v=0\\r\\n\" +\n"
       "\"o=- 2750483185 0 IN IP4 %s\\r\\n\" +\n"
       "\"s=Streaming test\\r\\n\" +\n"
       "\"t=0 0\\r\\n\" +\n"
       "\"a=group:BUNDLE video\\r\\n\" +\n"
       "\"a=msid-semantic: WMS janus\\r\\n\" +\n"
-      "\"m=video 9 RTP/SAVPF 126\\r\\n\" +\n"
+      "\"m=video 9 RTP/SAVPF 96\\r\\n\" +\n"
       "\"c=IN IP4 %s\\r\\n\" +\n"
-      "\"a=sendonly\\r\\n\" +\n"
+      "\"a=sendrecv\\r\\n\" +\n"
       "\"a=mid:video\\r\\n\" +\n"
       "\"a=rtcp-mux\\r\\n\" +\n"
       "\"a=ice-ufrag:%s\\r\\n\" +\n"
       "\"a=ice-pwd:%s\\r\\n\" +\n"
       "\"a=fingerprint:sha-256 %s\\r\\n\" +\n"
 //      "\"a=rtpmap:96 VP8/90000\\r\\n\" +\n"
-      "\"a=rtpmap:126 H264/90000\\r\\n\" +\n"
-      "\"a=fmtp:126 profile-level-id=42e01f;packetization-mode=1\\r\\n\" +\n"
-      "\"a=sendrecv\\r\\n\" +\n"
+      "\"a=rtpmap:96 H264/90000\\r\\n\" +\n"
+      "\"a=fmtp:96 profile-level-id=42e01f;packetization-mode=1\\r\\n\" +\n"
+//      "\"a=sendrecv\\r\\n\" +\n"
+      "\"a=setup:actpass\\r\\n\" +\n"
+      //"\"a=sendrecv\\r\\n\" +\n"
       "\"a=mid:video\\r\\n\" +\n"
       "\"a=rtcp-mux\\r\\n\"",
-      addr, addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);
-  /*g_string_append_printf (sdpStr,
+      addr, addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);*/
+  g_string_append_printf (sdpStr,
       "\"v=0\\r\\n\" +\n"
       "\"o=- 2750483185 0 IN IP4 %s\\r\\n\" +\n"
       "\"s=Streaming test\\r\\n\" +\n"
@@ -501,15 +544,15 @@ a=candidate:2 2 udp 2013266430 192.168.2.147 57371 typ host
       "\"a=ice-pwd:%s\\r\\n\" +\n"
       "\"a=fingerprint:sha-256 %s\\r\\n\" +\n"
       "\"a=group:BUNDLE video\\r\\n\" +\n"
-      "\"m=video %d RTP/SAVPF 126\\r\\n\" +\n"
+      "\"m=video %d RTP/SAVPF 96\\r\\n\" +\n"
       "\"c=IN IP4 %s\\r\\n\" +\n"
 //      "\"a=rtpmap:96 VP8/90000\\r\\n\" +\n"
-      "\"a=rtpmap:126 H264/90000\\r\\n\" +\n"
-      "\"a=fmtp:126 profile-level-id=42e01f\\r\\n\" +\n"
+      "\"a=rtpmap:96 H264/90000\\r\\n\" +\n"
+      "\"a=fmtp:96 profile-level-id=42e01f\\r\\n\" +\n"
       "\"a=sendrecv\\r\\n\" +\n"
       "\"a=mid:video\\r\\n\" +\n"
       "\"a=rtcp-mux\\r\\n\"",
-      addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);*/
+      addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);
 
   g_free (ufrag);
   g_free (pwd);
@@ -517,7 +560,6 @@ a=candidate:2 2 udp 2013266430 192.168.2.147 57371 typ host
 
   int i=0; 
   for (walk = candidates; walk; walk = walk->next) {
-    if (i%2==1) {
     NiceCandidate *cand = walk->data;
   
     nice_address_to_string (&cand->addr, addr);
@@ -525,8 +567,6 @@ a=candidate:2 2 udp 2013266430 192.168.2.147 57371 typ host
         "+\n\"a=candidate:%s %d UDP %d %s %d typ host\\r\\n\"",
         cand->foundation, cand->component_id, cand->priority, addr,
         nice_address_get_port (&cand->addr));
-    }
-    i++;
   }
   g_slist_free_full (candidates, (GDestroyNotify) nice_candidate_free);
 
@@ -586,6 +626,7 @@ get_substring (const gchar *regex, const gchar *string)
 static gboolean
 configure_media_session (MesiaSession *mediaSession, const gchar *sdp)
 {
+  fprintf(stderr,"IN CONFIG MEDIA\n");
   gboolean ret;
   gchar *ufrag;
   gchar *pwd;
@@ -602,8 +643,10 @@ configure_media_session (MesiaSession *mediaSession, const gchar *sdp)
   g_free (ufrag);
   g_free (pwd);
 
+  //regex = g_regex_new ("^a=candidate:(?<foundation>[0-9]+) (?<cid>[0-9]+)"
+  ///   " (udp|UDP) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+) (?<port>[0-9]+) typ host( generation [0-9]+)?$",
   regex = g_regex_new ("^a=candidate:(?<foundation>[0-9]+) (?<cid>[0-9]+)"
-      " (udp|UDP) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+) (?<port>[0-9]+) typ host( generation [0-9]+)?$",
+      " (udp|UDP) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+) (?<port>[0-9]+) typ host( generation [0-9]+)? ",
       G_REGEX_MULTILINE | G_REGEX_NEWLINE_CRLF, 0, NULL);
   g_assert (regex);
   g_regex_match (regex, sdp, 0, &match_info);
@@ -611,7 +654,7 @@ configure_media_session (MesiaSession *mediaSession, const gchar *sdp)
   while (g_match_info_matches (match_info)) {
     NiceCandidate *cand;
     GSList *candidates;
-
+    fprintf(stderr,"MATCH %s\n",match_info);
     gchar *foundation = g_match_info_fetch_named (match_info, "foundation");
     gchar *cid_str = g_match_info_fetch_named (match_info, "cid");
     gchar *prio_str = g_match_info_fetch_named (match_info, "prio");
@@ -646,6 +689,7 @@ configure_media_session (MesiaSession *mediaSession, const gchar *sdp)
   g_match_info_free (match_info);
   g_regex_unref (regex);
 
+   fprintf(stderr,"DONE CONFIG MEDIA\n");
   return TRUE;
 }
 
@@ -680,12 +724,42 @@ init_media_session (SoupServer *server, SoupMessage *msg, gint64 id)
                          kms_nice_agent_recv, NULL);
   g_signal_connect (mediaSession->agent, "candidate-gathering-done",
     G_CALLBACK (gathering_done), mediaSession);
+ g_signal_connect(mediaSession->agent, "component-state-changed",
+      G_CALLBACK(cb_component_state_changed), NULL);
 
   create_pipeline (mediaSession);
 
   nice_agent_gather_candidates (mediaSession->agent, mediaSession->stream_id);
 
   return mediaSession;
+}
+
+
+static void
+cb_component_state_changed(NiceAgent *agent, guint _stream_id,
+    guint component_id, guint state,
+    gpointer data)
+{
+static const gchar *state_name[] = {"disconnected", "gathering", "connecting",
+                                    "connected", "ready", "failed"};
+  fprintf(stderr,"SIGNAL: state changedXX %d %d %s[%d]\n",
+      _stream_id, component_id, state_name[state], state);
+
+ if (state == NICE_COMPONENT_STATE_READY || state == NICE_COMPONENT_STATE_CONNECTED) {
+    NiceCandidate *local, *remote;
+
+    // Get current selected candidate pair and print IP address used
+    if (nice_agent_get_selected_pair (agent, _stream_id, component_id,
+                &local, &remote)) {
+      gchar ipaddr[INET6_ADDRSTRLEN];
+
+      nice_address_to_string(&local->addr, ipaddr);
+      printf("\nNegotiation complete: ([%s]:%d,",
+          ipaddr, nice_address_get_port(&local->addr));
+      nice_address_to_string(&remote->addr, ipaddr);
+      printf(" [%s]:%d)\n", ipaddr, nice_address_get_port(&remote->addr));
+    }
+  }
 }
 
 static void
@@ -756,7 +830,9 @@ server_callback (SoupServer *server, SoupMessage *msg, const char *path,
   }
 
   if (query != NULL) {
+    fprintf(stdout,"ITS A QUERY!\n");
     gchar * sdp = g_hash_table_lookup(query, "sdp");
+    fprintf(stdout,"SDP INCOMING %s | %p %p\n",sdp,sdp,mediaSession);
     if (sdp != NULL && mediaSession != NULL) {
       if (configure_media_session (mediaSession, sdp)) {
         soup_message_set_status (msg, SOUP_STATUS_OK);
