@@ -14,6 +14,7 @@ video {
 </head>
 <body>
 
+<video id="video_local" autoplay></video>
 <video id="video_remote" autoplay></video>
 
 <script>
@@ -141,13 +142,18 @@ function onIceCandidate(event) {
   }
 }
 
-function startMediaSession() {
+function startMediaSession(localstream) {
   trace("Starting media session");
 
-  var servers = { "iceServers": [{ "url": "stun:159.203.252.147:3478" }] };
-  //var servers = {  'iceServers': [{
-  //  'url': 'stun:stun.example.org'
-  //}] };
+  videoTracks = localstream.getVideoTracks();
+  if (videoTracks.length > 0)
+    trace('Using Video device: ' + videoTracks[0].label);
+
+  audioTracks = localstream.getAudioTracks();
+  if (audioTracks.length > 0)
+    trace('Using Audio device: ' + audioTracks[0].label);
+
+  var servers = { "iceServers": [{ "url": "stun:77.72.174.167:3478" }] };
   pc = new RTCPeerConnection(servers, {
         optional: [{
                 DtlsSrtpKeyAgreement: true
@@ -158,14 +164,7 @@ function startMediaSession() {
   pc.onaddstream = gotRemoteStream;
   pc.onicecandidate = onIceCandidate;
 
-pc.oniceconnectionstatechange = function(event) {
-    if (pc.iceGatheringState === 'complete') {
-        //send_sdp_to_remote_peer();
-        trace("wtf!");
-	trace(pc.localDescription.sdp);
-    }
-};
-
+  pc.addStream(localstream);
   trace("sdp:\n" + sdp);
   var remoteDesc = new RTCSessionDescription({type: "offer", sdp: sdp});
 
@@ -187,11 +186,27 @@ pc.oniceconnectionstatechange = function(event) {
   });
 }
 
+function gotStream(stream) {
+  trace("Received local stream");
+  attachMediaStream(video_local, stream);
+  startMediaSession(stream);
+}
 
+function start() {
+  trace("Requesting local stream");
+  getUserMedia({video: {
+                  mandatory: { maxFrameRate: 15 , maxWidth: 320 }
+                  }
+                },
+                gotStream,
+                function() {
+                  trace("Error in getUserMedia");
+                });
+}
 
 window.onload = function() {
   trace("On load");
-  startMediaSession();
+  start();
 }
 
 /* File will be completed by server at execution time */

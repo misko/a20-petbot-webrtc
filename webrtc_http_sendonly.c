@@ -86,6 +86,8 @@ bus_msg (GstBus * bus, GstMessage * msg, gpointer pipe)
   }
 }
 
+static const gchar *candidate_type_name[] = {"host", "srflx", "prflx", "relay"};
+
 static void
 create_pipeline (MesiaSession *mediaSession)
 {
@@ -342,7 +344,7 @@ a=candidate:2 2 udp 2013266430 192.168.2.147 57371 typ host
 //      "\"a=rtpmap:96 VP8/90000\\r\\n\" +\n"
       "\"a=rtpmap:96 H264/90000\\r\\n\" +\n"
       "\"a=fmtp:96 profile-level-id=42e01f\\r\\n\" +\n"
-      "\"a=sendrecv\\r\\n\" +\n"
+      "\"a=send\\r\\n\" +\n"
       "\"a=mid:video\\r\\n\" +\n"
       "\"a=rtcp-mux\\r\\n\"",
       addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);
@@ -357,9 +359,9 @@ a=candidate:2 2 udp 2013266430 192.168.2.147 57371 typ host
   
     nice_address_to_string (&cand->addr, addr);
     g_string_append_printf (sdpStr,
-        "+\n\"a=candidate:%s %d UDP %d %s %d typ host\\r\\n\"",
+        "+\n\"a=candidate:%s %d UDP %d %s %d typ %s\\r\\n\"",
         cand->foundation, cand->component_id, cand->priority, addr,
-        nice_address_get_port (&cand->addr));
+        nice_address_get_port (&cand->addr),candidate_type_name[cand->type]);
   }
   g_slist_free_full (candidates, (GDestroyNotify) nice_candidate_free);
 
@@ -506,7 +508,7 @@ init_media_session (SoupServer *server, SoupMessage *msg, gint64 id)
   mediaSession->agent = nice_agent_new (mediaSession->context, NICE_COMPATIBILITY_RFC5245);
   g_object_set (mediaSession->agent, "upnp", FALSE, NULL);
   g_object_set(G_OBJECT (mediaSession->agent),
-               "stun-server", "77.72.174.167",
+               "stun-server", "159.203.252.147",
                "stun-server-port", 3478,
                NULL);
 
