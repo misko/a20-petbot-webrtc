@@ -374,18 +374,38 @@ static gboolean configure_media_session (MesiaSession *mediaSession, const gchar
   //fprintf(stderr,"PARSE SDP|%s|\n",sdp);
   GST_DEBUG ("Process SDP:\n%s", sdp);
 
-  /*nice_agent_set_stream_name(mediaSession->agent, mediaSession->stream_id, "video");
-  int retd = nice_agent_parse_remote_sdp(mediaSession->agent,sdp);
-  fprintf(stderr,"REMOTE CANDDIATE PARSING? %d\n",retd);*/
 
-  
+  //this isnt working for some reason ....
+  //int retd = nice_agent_parse_remote_sdp(mediaSession->agent,sdp);
+  //fprintf(stderr,"REMOTE CANDDIATE PARSING? %d\n",retd);
+
+  //UFAR AND PWD
   ufrag = get_substring ("^a=ice-ufrag:([A-Za-z0-9\\+\\/]+)$", sdp);
   pwd = get_substring ("^a=ice-pwd:([A-Za-z0-9\\+\\/]+)$", sdp);
-
   nice_agent_set_remote_credentials (mediaSession->agent, mediaSession->stream_id, ufrag, pwd);
   g_free (ufrag);
   g_free (pwd);
 
+  //CANDIDATES
+  gchar ** sdp_lines = g_strsplit (sdp, "\n", 0);
+  guint i =0;
+  for (i = 0; sdp_lines && sdp_lines[i]; i++) {
+    if (g_str_has_prefix (sdp_lines[i], "a=ice-ufrag:")) {
+	 //sdp_lines[i] + 12
+    } else if (g_str_has_prefix (sdp_lines[i], "a=ice-pwd:")) {
+	 //sdp_lines[i] + 10
+    } else if (g_str_has_prefix (sdp_lines[i], "a=candidate:")) {
+    	    NiceCandidate * cand = nice_agent_parse_remote_candidate_sdp(mediaSession->agent,mediaSession->stream_id,sdp_lines[i]);
+	    GSList *candidates;
+	    candidates = g_slist_append (NULL, cand);
+	    ret = nice_agent_set_remote_candidates (mediaSession->agent, mediaSession->stream_id,
+		cand->component_id, candidates);
+    }
+  }
+ 
+
+ 
+/*
   regex = g_regex_new ("^(?<cand>a=candidate:.*$)"
       ,G_REGEX_MULTILINE | G_REGEX_NEWLINE_CRLF, 0, NULL);
   g_assert (regex);
@@ -407,7 +427,7 @@ static gboolean configure_media_session (MesiaSession *mediaSession, const gchar
     //pb_nice_agent_parse_remote_candidate_sdp(mediaSession->agent,mediaSession->stream_id,cand_str);
 
     g_match_info_next (match_info, NULL);
-  }
+  }*/
   /*
   //the other regex
   regex = g_regex_new ("^a=candidate:(?<foundation>[0-9]+) (?<cid>[0-9]+)"
