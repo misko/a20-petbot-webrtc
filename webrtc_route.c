@@ -113,20 +113,14 @@ static void create_pipeline (MesiaSession *mediaSession) {
   }
 
   GstElement *nicesrc,*nicesrccapsfilter,*dtlssrtpdec,*rtph264depay,*avdec_h264,*fakesink;
-  GstElement *testsrc,*vc,*x264enc,*h264capsfilter,*rtph264pay,*dtlssrtpenc,*nicesink;
+  GstElement *udpsrc,*dtlssrtpenc,*nicesink;
 
   nicesrc = make_element("nicesrc","nicesrc");
   nicesrccapsfilter = make_element("capsfilter","nicesrccapsfilter");
   dtlssrtpdec = make_element("dtlssrtpdec","dtlssrtpdec");
-  rtph264depay = make_element("rtph264depay","rtph264depay");
-  avdec_h264 = make_element("avdec_h264","avdec_h264");
   fakesink = make_element("fakesink","fakesink");
 
-  testsrc = make_element("videotestsrc","testsrc");
-  vc = make_element("videoconvert","videoconvert");
-  x264enc = make_element("x264enc","x264enc");
-  h264capsfilter = make_element("capsfilter","h264capsfilter");
-  rtph264pay = make_element("rtph264pay","rtph264pay");
+  udpsrc = make_element("udpsrc","udpsrc");
   dtlssrtpenc = make_element("dtlssrtpenc","dtlssrtpenc");
   nicesink = make_element("nicesink","nicesink");
 
@@ -147,16 +141,8 @@ static void create_pipeline (MesiaSession *mediaSession) {
   g_object_set (nicesrccapsfilter, "caps", nicesrc_caps, NULL);
   gst_caps_unref (nicesrc_caps);
 
-  GstCaps *h264caps = gst_caps_new_simple("video/x-h264",
-            "profile", G_TYPE_STRING, "baseline",
-            NULL);
-  g_object_set (h264capsfilter, "caps", h264caps, NULL);
-  gst_caps_unref (h264caps);
-
   //set the properties
-  g_object_set (rtph264pay, "pt", 96, NULL);
-
-  g_object_set (G_OBJECT (x264enc), "tune", 4, NULL);
+  g_object_set (G_OBJECT (udpsrc),"port",9090, NULL);
 
   g_object_set (G_OBJECT (dtlssrtpenc), "channel-id", GST_OBJECT_NAME (rx_pipeline), NULL);
   g_object_set (G_OBJECT (dtlssrtpenc), "is-client", FALSE, NULL);
@@ -170,10 +156,10 @@ static void create_pipeline (MesiaSession *mediaSession) {
   g_object_set (G_OBJECT (nicesrc), "agent", mediaSession->agent, "stream", mediaSession->stream_id, "component", 1, NULL);
 
   //send recv
-  gst_bin_add_many(GST_BIN (rx_pipeline), nicesrc,  dtlssrtpdec, nicesrccapsfilter, rtph264depay, avdec_h264,fakesink,NULL);
-  gst_element_link_many(nicesrc,  dtlssrtpdec, nicesrccapsfilter, rtph264depay, avdec_h264,fakesink,NULL);
-  gst_bin_add_many(GST_BIN(tx_pipeline),testsrc , vc, x264enc , h264capsfilter, rtph264pay, dtlssrtpenc, nicesink, NULL);
-  gst_element_link_many(testsrc , vc, x264enc , h264capsfilter, rtph264pay, dtlssrtpenc, nicesink, NULL);
+  gst_bin_add_many(GST_BIN (rx_pipeline), nicesrc,  dtlssrtpdec ,fakesink,NULL);
+  gst_element_link_many(nicesrc,  dtlssrtpdec,fakesink,NULL);
+  gst_bin_add_many(GST_BIN(tx_pipeline),udpsrc, nicesrccapsfilter, dtlssrtpenc, nicesink, NULL);
+  gst_element_link_many(udpsrc, nicesrccapsfilter, dtlssrtpenc, nicesink, NULL);
 
   gst_element_set_state (rx_pipeline, GST_STATE_PLAYING);
 
