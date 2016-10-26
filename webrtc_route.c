@@ -253,8 +253,6 @@ static void gathering_done (NiceAgent *agent, guint stream_id, MesiaSession *med
   candidates = g_slist_concat (candidates,
                                nice_agent_get_local_candidates (mediaSession->agent, mediaSession->stream_id, 2));
 
-  //gchar * sdp = nice_agent_generate_local_sdp (agent);
-
   nice_address_to_string (&lowest_prio_cand->addr, addr);
   fingerprint = generate_fingerprint (CERT_KEY_PEM_FILE);
 
@@ -264,18 +262,14 @@ static void gathering_done (NiceAgent *agent, guint stream_id, MesiaSession *med
       "\"o=- 2750483185 0 IN IP4 %s\\r\\n\" +\n"
       "\"s=Streaming test\\r\\n\" +\n"
       "\"t=0 0\\r\\n\" +\n"
-      //"\"a=ice-ufrag:%s\\r\\n\" +\n"
-      //"\"a=ice-pwd:%s\\r\\n\" +\n"
       "\"a=fingerprint:sha-256 %s\\r\\n\" +\n"
       "\"a=group:BUNDLE video\\r\\n\" +\n"
       "\"m=video %d RTP/SAVPF 96\\r\\n\" +\n"
-      //"\"c=IN IP4 %s\\r\\n\" +\n"
       "\"a=rtpmap:96 H264/90000\\r\\n\" +\n"
       "\"a=fmtp:96 profile-level-id=42e01f\\r\\n\" +\n"
       "\"a=send\\r\\n\" +\n"
       "\"a=mid:video\\r\\n\" +\n"
       "\"a=rtcp-mux\\r\\n\"",
-      //addr, ufrag, pwd, fingerprint, nice_address_get_port (&lowest_prio_cand->addr), addr);
       addr, fingerprint, nice_address_get_port (&lowest_prio_cand->addr));
 
 
@@ -289,7 +283,6 @@ static void gathering_done (NiceAgent *agent, guint stream_id, MesiaSession *med
 		if (buffer[0]!='m') {
 			g_string_append_printf(sdpStr,"+\n\"%s\\r\\n\"",buffer);
 		}
-		fprintf(stderr,"FOUND!|%s|\n",buffer);
 		buffer_offset=0;
 	} else {
 		buffer[buffer_offset++]=sdp[sdp_offset];
@@ -300,21 +293,6 @@ static void gathering_done (NiceAgent *agent, guint stream_id, MesiaSession *med
   g_free (pwd);
   g_free (fingerprint);
 
-  int i=0; 
-  for (walk = candidates; walk; walk = walk->next) {
-    NiceCandidate *cand = walk->data;
-
-    //new way 
-    //gchar * cand_str = nice_agent_generate_local_candidate_sdp(agent,cand);
-    //g_string_append_printf (sdpStr,"+\n\"%s\\r\\n\"",cand_str);
- 
-    //old way
-    /*nice_address_to_string (&cand->addr, addr);
-    g_string_append_printf (sdpStr,
-        "+\n\"a=candidate:%s %d UDP %d %s %d typ %s\\r\\n\"",
-        cand->foundation, cand->component_id, cand->priority, addr,
-        nice_address_get_port (&cand->addr),candidate_type_name[cand->type]);*/
-  }
   g_slist_free_full (candidates, (GDestroyNotify) nice_candidate_free);
 
   line = g_strdup_printf("sdp = %s;\n", sdpStr->str);
@@ -365,20 +343,15 @@ static gchar * get_substring (const gchar *regex, const gchar *string) {
 
 
 static gboolean configure_media_session (MesiaSession *mediaSession, const gchar *sdp) {
-  fprintf(stderr,"IN CONFIG MEDIA\n");
   gboolean ret;
   gchar *ufrag;
   gchar *pwd;
   GRegex *regex;
   GMatchInfo *match_info = NULL;
-  //fprintf(stderr,"PARSE SDP|%s|\n",sdp);
   GST_DEBUG ("Process SDP:\n%s", sdp);
 
-
-  //this isnt working for some reason ....
-  //int retd = nice_agent_parse_remote_sdp(mediaSession->agent,sdp);
-  //fprintf(stderr,"REMOTE CANDDIATE PARSING? %d\n",retd);
-
+  //sdp=g_strdelimit(sdp,"\r",'\n');
+  
   //UFAR AND PWD
   ufrag = get_substring ("^a=ice-ufrag:([A-Za-z0-9\\+\\/]+)$", sdp);
   pwd = get_substring ("^a=ice-pwd:([A-Za-z0-9\\+\\/]+)$", sdp);
@@ -392,88 +365,20 @@ static gboolean configure_media_session (MesiaSession *mediaSession, const gchar
   for (i = 0; sdp_lines && sdp_lines[i]; i++) {
     if (g_str_has_prefix (sdp_lines[i], "a=ice-ufrag:")) {
 	 //sdp_lines[i] + 12
+ 	 //gchar * ufrag = g_strdup(sdp_lines[i] + 12);
     } else if (g_str_has_prefix (sdp_lines[i], "a=ice-pwd:")) {
 	 //sdp_lines[i] + 10
+ 	 //gchar * pwd = g_strdup(sdp_lines[i] + 10);
     } else if (g_str_has_prefix (sdp_lines[i], "a=candidate:")) {
     	    NiceCandidate * cand = nice_agent_parse_remote_candidate_sdp(mediaSession->agent,mediaSession->stream_id,sdp_lines[i]);
 	    GSList *candidates;
 	    candidates = g_slist_append (NULL, cand);
 	    ret = nice_agent_set_remote_candidates (mediaSession->agent, mediaSession->stream_id,
 		cand->component_id, candidates);
+    	    g_slist_free (candidates);
+            nice_candidate_free (cand);
     }
   }
- 
-
- 
-/*
-  regex = g_regex_new ("^(?<cand>a=candidate:.*$)"
-      ,G_REGEX_MULTILINE | G_REGEX_NEWLINE_CRLF, 0, NULL);
-  g_assert (regex);
-  g_regex_match (regex, sdp, 0, &match_info);
-
-  while (g_match_info_matches (match_info)) {
-    gchar *cand_str = g_match_info_fetch_named (match_info, "cand");
-    NiceCandidate * cand = nice_agent_parse_remote_candidate_sdp(mediaSession->agent,mediaSession->stream_id,cand_str);
-    fprintf(stderr,"CAND IS %p %s\n",cand,cand_str);
-    if (g_str_has_prefix(cand_str, "a=candidate:")) {
-       fprintf(stderr,"CAND HAS RIGHT PREFIX\n");
-    }
-
-
-    GSList *candidates;
-    candidates = g_slist_append (NULL, cand);
-    ret = nice_agent_set_remote_candidates (mediaSession->agent, mediaSession->stream_id,
-        cand->component_id, candidates);
-    //pb_nice_agent_parse_remote_candidate_sdp(mediaSession->agent,mediaSession->stream_id,cand_str);
-
-    g_match_info_next (match_info, NULL);
-  }*/
-  /*
-  //the other regex
-  regex = g_regex_new ("^a=candidate:(?<foundation>[0-9]+) (?<cid>[0-9]+)"
-      " (udp|UDP) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+) (?<port>[0-9]+) typ host( generation [0-9]+)? ",
-      G_REGEX_MULTILINE | G_REGEX_NEWLINE_CRLF, 0, NULL);
-  g_assert (regex);
-  g_regex_match (regex, sdp, 0, &match_info);
-
-  while (g_match_info_matches (match_info)) {
-    NiceCandidate *cand;
-    GSList *candidates;
-    fprintf(stderr,"MATCH %s\n",match_info);
-    gchar *foundation = g_match_info_fetch_named (match_info, "foundation");
-    gchar *cid_str = g_match_info_fetch_named (match_info, "cid");
-    gchar *prio_str = g_match_info_fetch_named (match_info, "prio");
-    gchar *addr = g_match_info_fetch_named (match_info, "addr");
-    gchar *port_str = g_match_info_fetch_named (match_info, "port");
-
-    cand = nice_candidate_new (NICE_CANDIDATE_TYPE_HOST);
-    cand->component_id = g_ascii_strtoll (cid_str, NULL, 10);
-    cand->priority = g_ascii_strtoll (prio_str, NULL, 10);
-    strncpy (cand->foundation, foundation, NICE_CANDIDATE_MAX_FOUNDATION);
-
-    ret = nice_address_set_from_string (&cand->addr, addr);
-    g_assert (ret);
-    nice_address_set_port (&cand->addr, g_ascii_strtoll (port_str, NULL, 10));
-
-    g_free (addr);
-    g_free (foundation);
-    g_free (cid_str);
-    g_free (prio_str);
-    g_free (port_str);
-
-    candidates = g_slist_append (NULL, cand);
-    ret = nice_agent_set_remote_candidates (mediaSession->agent, mediaSession->stream_id,
-        cand->component_id, candidates);
-    g_assert (ret);
-    g_slist_free (candidates);
-    nice_candidate_free (cand);
-
-    g_match_info_next (match_info, NULL);
-  }
-
-  g_match_info_free (match_info);
-  g_regex_unref (regex);
- */ 
    fprintf(stderr,"DONE CONFIG MEDIA\n");
   return TRUE;
 }
@@ -610,9 +515,7 @@ static void server_callback (SoupServer *server, SoupMessage *msg, const char *p
   }
 
   if (query != NULL) {
-    fprintf(stdout,"ITS A QUERY!\n");
     gchar * sdp = g_hash_table_lookup(query, "sdp");
-    fprintf(stdout,"SDP INCOMING %s | %p %p\n",sdp,sdp,mediaSession);
     if (sdp != NULL && mediaSession != NULL) {
       if (configure_media_session (mediaSession, sdp)) {
         soup_message_set_status (msg, SOUP_STATUS_OK);

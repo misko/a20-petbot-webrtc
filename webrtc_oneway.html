@@ -144,7 +144,16 @@ function onIceCandidate(event) {
 function startMediaSession() {
   trace("Starting media session");
 
-  var servers = { "iceServers": [{ "url": "stun:159.203.252.147:3478" }] };
+  var servers = { "iceServers": [
+	{ 
+		"url": "stun:159.203.252.147:3478" 
+	} , 
+        {
+		'url': 'turn:159.203.252.147:3478?transport=udp',
+      		'credential': 'misko',
+     		'username': 'misko'
+	}
+    ] };
   //var servers = {  'iceServers': [{
   //  'url': 'stun:stun.example.org'
   //}] };
