@@ -19,6 +19,7 @@
 #include <nice/nice.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #define GST_CAT_DEFAULT webrtc_http_server
 GST_DEBUG_CATEGORY_STATIC (GST_CAT_DEFAULT);
@@ -35,8 +36,9 @@ GST_DEBUG_CATEGORY_STATIC (GST_CAT_DEFAULT);
 static GRand *_rand;
 static GHashTable *cookies;
 
-
-
+static const gchar *candidate_type_name[] = {"host", "srflx", "prflx", "relay"};
+static const gchar *state_name[] = {"disconnected", "gathering", "connecting",
+                                    "connected", "ready", "failed"};
 typedef struct _MesiaSession {
   gint64 id;
 
@@ -52,13 +54,28 @@ typedef struct _MesiaSession {
   GstElement *rx_pipeline;
   GstElement *tx_pipeline;
 } MesiaSession;
+
+//prototypes
 static void cb_component_state_changed(NiceAgent *agent, guint stream_id,
     guint component_id, guint state,
     MesiaSession * mediaSession);
 
-static void
-bus_msg (GstBus * bus, GstMessage * msg, gpointer pipe)
-{
+static GstElement * make_element(const char * kind,const  char * name);
+
+//prototypes - done
+
+
+static GstElement * make_element(const char * kind,const  char * name) {
+	GstElement * ret = gst_element_factory_make(kind,name);
+	if (ret==NULL) {
+		fprintf(stderr,"Failed to create element %s with type %s\n",name, kind);
+		exit(1);
+	}
+	return ret;
+}
+
+
+static void bus_msg (GstBus * bus, GstMessage * msg, gpointer pipe) {
   switch (GST_MESSAGE_TYPE (msg)) {
     case GST_MESSAGE_ERROR: {
       gchar *error_file;
@@ -86,38 +103,32 @@ bus_msg (GstBus * bus, GstMessage * msg, gpointer pipe)
   }
 }
 
-static const gchar *candidate_type_name[] = {"host", "srflx", "prflx", "relay"};
 
-static void
-create_pipeline (MesiaSession *mediaSession)
-{
+static void create_pipeline (MesiaSession *mediaSession) {
   GstElement *rx_pipeline = gst_pipeline_new (NULL);
   GstElement *tx_pipeline = gst_pipeline_new (NULL);
-  //GstElement *rtph264pay = gst_element_factory_make ("rtph264pay", NULL);
-  GstElement *rtph264depay = gst_element_factory_make ("rtph264depay", NULL);
-  GstElement *avdec_h264 = gst_element_factory_make ("avdec_h264", NULL);
-  //GstElement *x264enc = gst_element_factory_make ("x264enc", NULL);
-  GstElement *testsrc = gst_element_factory_make ("videotestsrc", NULL);
-  GstElement *fakesink = gst_element_factory_make ("fakesink", NULL);
-  printf("testsrc %p\n",testsrc);
-  GstElement *rtph264pay = gst_element_factory_make ("rtph264pay", NULL);
-  printf("pay %p\n",rtph264pay);
-  GstElement *x264enc = gst_element_factory_make ("x264enc", NULL);
-  printf("pay %p\n",x264enc);
-  GstElement *dtlssrtpdec = gst_element_factory_make ("dtlssrtpdec", NULL);
-  GstElement *dtlssrtpenc = gst_element_factory_make ("dtlssrtpenc", NULL);
-  printf("pay %p\n",dtlssrtpenc);
-  GstElement *nicesrc = gst_element_factory_make ("nicesrc", NULL);
-  GstElement *nicesink = gst_element_factory_make ("nicesink", NULL);
-  printf("pay %p\n",nicesink);
-  GstElement *capsfilter = gst_element_factory_make ("capsfilter", NULL);
-  printf("pay %p\n",capsfilter);
-  GstElement *capsfilter2 = gst_element_factory_make ("capsfilter", NULL);
-  //GstElement *clockoverlay = gst_element_factory_make ("clockoverlay", NULL);
-  GstElement *vc = gst_element_factory_make ("videoconvert", NULL);
-  printf("vc %p\n",vc);
+  if (rx_pipeline==NULL || tx_pipeline==NULL) {
+    fprintf(stderr,"Failed to create one of the two pipelines...\n");
+    exit(1);
+  }
 
-  GstCaps *caps,*caps2;
+  GstElement *nicesrc,*nicesrccapsfilter,*dtlssrtpdec,*rtph264depay,*avdec_h264,*fakesink;
+  GstElement *testsrc,*vc,*x264enc,*h264capsfilter,*rtph264pay,*dtlssrtpenc,*nicesink;
+
+  nicesrc = make_element("nicesrc","nicesrc");
+  nicesrccapsfilter = make_element("capsfilter","nicesrccapsfilter");
+  dtlssrtpdec = make_element("dtlssrtpdec","dtlssrtpdec");
+  rtph264depay = make_element("rtph264depay","rtph264depay");
+  avdec_h264 = make_element("avdec_h264","avdec_h264");
+  fakesink = make_element("fakesink","fakesink");
+
+  testsrc = make_element("videotestsrc","testsrc");
+  vc = make_element("videoconvert","videoconvert");
+  x264enc = make_element("x264enc","x264enc");
+  h264capsfilter = make_element("capsfilter","h264capsfilter");
+  rtph264pay = make_element("rtph264pay","rtph264pay");
+  dtlssrtpenc = make_element("dtlssrtpenc","dtlssrtpenc");
+  nicesink = make_element("nicesink","nicesink");
 
   GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (rx_pipeline));
   g_object_set (G_OBJECT (rx_pipeline), "async-handling", TRUE, NULL);
@@ -131,50 +142,41 @@ create_pipeline (MesiaSession *mediaSession)
   g_signal_connect (bus, "message", G_CALLBACK (bus_msg), tx_pipeline);
   g_object_unref(bus);
 
-  caps = gst_caps_new_simple("application/x-rtp",
-                              "payload", G_TYPE_INT, 96,
-                              NULL);
-  /*caps2 = gst_caps_new_simple("video/x-h264",
-				"profile","baseline",NULL);*/
-        caps2 = gst_caps_new_simple("video/x-h264",
+  //set the caps
+  GstCaps *nicesrc_caps = gst_caps_from_string("application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=96");
+  g_object_set (nicesrccapsfilter, "caps", nicesrc_caps, NULL);
+  gst_caps_unref (nicesrc_caps);
+
+  GstCaps *h264caps = gst_caps_new_simple("video/x-h264",
             "profile", G_TYPE_STRING, "baseline",
             NULL);
-  g_object_set (capsfilter2, "caps", caps2, NULL);
-  gst_caps_unref (caps);
+  g_object_set (h264capsfilter, "caps", h264caps, NULL);
+  gst_caps_unref (h264caps);
 
+  //set the properties
   g_object_set (rtph264pay, "pt", 96, NULL);
-  //g_object_set (clockoverlay, "font-desc", "Sans 28", NULL);
-  //g_object_set(x264enc, "deadline", GST_SECOND / 30, "target-bitrate", 256000,
-  //              "keyframe-mode", 0, "end-usage", 2, NULL);
 
   g_object_set (G_OBJECT (x264enc), "tune", 4, NULL);
+
   g_object_set (G_OBJECT (dtlssrtpenc), "channel-id", GST_OBJECT_NAME (rx_pipeline), NULL);
-  //g_object_set (G_OBJECT (dtlssrtpenc), "connection-id", GST_OBJECT_NAME (pipeline), NULL);
   g_object_set (G_OBJECT (dtlssrtpenc), "is-client", FALSE, NULL);
+
   g_object_set (G_OBJECT (dtlssrtpdec), "channel-id", GST_OBJECT_NAME (rx_pipeline), NULL);
-  //g_object_set (G_OBJECT (dtlssrtpdec), "connection-id", GST_OBJECT_NAME (pipeline), NULL);
   g_object_set (G_OBJECT (dtlssrtpdec), "is-client", FALSE, NULL);
 
-  GstCaps *nicesrc_caps = gst_caps_from_string("application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=96");
-  g_object_set (capsfilter, "caps", nicesrc_caps, NULL);
   g_object_set (G_OBJECT (dtlssrtpdec), "certificate-pem-file", CERT_KEY_PEM_FILE, NULL);
-  //g_object_set (G_OBJECT (dtlssrtpdec), "pem", CERT_KEY_PEM_FILE, NULL); //TODO THIS SHOULD BE THE FILE CONENTS?
-  //g_object_set (G_OBJECT (dtlssrtpdec), "pem", buffer, NULL); //TODO THIS SHOULD BE THE FILE CONENTS?
-  //g_object_set (G_OBJECT (dtlssrtpenc), "certificate-pem-file", CERT_KEY_PEM_FILE, NULL);
 
   g_object_set (G_OBJECT (nicesink), "agent", mediaSession->agent, "stream", mediaSession->stream_id, "component", 1, NULL);
   g_object_set (G_OBJECT (nicesrc), "agent", mediaSession->agent, "stream", mediaSession->stream_id, "component", 1, NULL);
 
   //send recv
-  gst_bin_add_many(GST_BIN (rx_pipeline), nicesrc,  dtlssrtpdec, capsfilter, rtph264depay, avdec_h264,fakesink,NULL);
-  gst_element_link_many(nicesrc,  dtlssrtpdec, capsfilter, rtph264depay, avdec_h264,fakesink,NULL);
-  gst_bin_add_many(GST_BIN(tx_pipeline),testsrc , vc, x264enc , capsfilter2, rtph264pay, dtlssrtpenc, nicesink, NULL);
-  gst_element_link_many(testsrc , vc, x264enc , capsfilter2, rtph264pay, dtlssrtpenc, nicesink, NULL);
+  gst_bin_add_many(GST_BIN (rx_pipeline), nicesrc,  dtlssrtpdec, nicesrccapsfilter, rtph264depay, avdec_h264,fakesink,NULL);
+  gst_element_link_many(nicesrc,  dtlssrtpdec, nicesrccapsfilter, rtph264depay, avdec_h264,fakesink,NULL);
+  gst_bin_add_many(GST_BIN(tx_pipeline),testsrc , vc, x264enc , h264capsfilter, rtph264pay, dtlssrtpenc, nicesink, NULL);
+  gst_element_link_many(testsrc , vc, x264enc , h264capsfilter, rtph264pay, dtlssrtpenc, nicesink, NULL);
 
 
   gst_element_set_state (rx_pipeline, GST_STATE_PLAYING);
-  //GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL,
-  //                              GST_OBJECT_NAME(pipeline));
 
   mediaSession->rx_pipeline = rx_pipeline;
   mediaSession->tx_pipeline = tx_pipeline;
@@ -535,8 +537,6 @@ cb_component_state_changed(NiceAgent *agent, guint _stream_id,
     guint component_id, guint state,
     MesiaSession *mediaSession)
 {
-static const gchar *state_name[] = {"disconnected", "gathering", "connecting",
-                                    "connected", "ready", "failed"};
   fprintf(stderr,"SIGNAL: state changedXX %d %d %s[%d]\n",
       _stream_id, component_id, state_name[state], state);
 
