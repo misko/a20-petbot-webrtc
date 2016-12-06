@@ -22,3 +22,5 @@ gcc `pkg-config --cflags gstreamer-1.0` -I/usr/local/include/libsoup-2.4/ `pkg-c
 #Macintosh:gst-plugins-bad-1.8.3 miskodzamba$ autoreconf -fvi
 
 #gst-launch-1.0 -v wrappercamerabinsrc ! video/x-raw,width=640,height=480 ! videoconvert ! x264enc tune=zerolatency ! video/x-h264,profile=baseline ! rtph264pay pt=96 ! udpsink host=127.0.0.1 port=9090
+
+#env PKG_CONFIG_PATH=/usr/local/Cellar/openssl101/1.0.1u/lib/pkgconfig ./configure CC=/usr/bin/gcc CXX=/usr/bin/g++ OBJC=/usr/bin/gcc --disable-opencv --disable-gtk-doc --disable-gl
